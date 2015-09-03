@@ -17,29 +17,27 @@ import (
 	"github.com/influxdb/influxdb/influxql"
 )
 
-// iterator represents a forward-only iterator over a set of points.
-// These are used by the mapFunctions in this file
-type iterator interface {
-	Next() (time int64, value interface{})
+type aggregate interface {
+	// Returns whether this aggregate requires time-ordered updates
+	// across multiple series.
+	ordered() bool
+	
+	// Updates the value of the aggregate
+	update(time int64, value interface{})
+	
+	// returns wether further updates on this aggregate will change the value
+	immutable() bool
+	
+	// reduces two aggregates into a new aggregate. Aggregates must be 
+	// same type
+	reduce(aggs ...aggregate) aggregate
+	
+	value() (int64, interface{})
+	
 }
 
-// mapFunc represents a function used for mapping over a sequential series of data.
-// The iterator represents a single group by interval
-type mapFunc func(iterator) interface{}
-
-// reduceFunc represents a function used for reducing mapper output.
-type reduceFunc func([]interface{}) interface{}
-
-// UnmarshalFunc represents a function that can take bytes from a mapper from remote
-// server and marshal it into an interface the reducer can use
-type unmarshalFunc func([]byte) (interface{}, error)
-
 // initializemapFunc takes an aggregate call from the query and returns the mapFunc
-func initializeMapFunc(c *influxql.Call) (mapFunc, error) {
-	// see if it's a query for raw data
-	if c == nil {
-		return MapRawQuery, nil
-	}
+func initializeMapFunc(c *influxql.Call) (aggregate, error) {
 
 	// Ensure that there is either a single argument or if for percentile, two
 	if c.Name == "percentile" {
@@ -1088,16 +1086,6 @@ func IsNumeric(c *influxql.Call) bool {
 	default:
 		return true
 	}
-}
-
-// MapRawQuery is for queries without aggregates
-func MapRawQuery(itr iterator) interface{} {
-	var values []*rawQueryMapOutput
-	for k, v := itr.Next(); k != -1; k, v = itr.Next() {
-		val := &rawQueryMapOutput{k, v}
-		values = append(values, val)
-	}
-	return values
 }
 
 type rawQueryMapOutput struct {
